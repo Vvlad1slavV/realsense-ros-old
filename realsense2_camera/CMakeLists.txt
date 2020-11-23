@@ -5,8 +5,10 @@ add_compile_options(-std=c++11)
 option(BUILD_WITH_OPENMP "Use OpenMP" OFF)
 option(SET_USER_BREAK_AT_STARTUP "Set user wait point in startup (for debug)" OFF)
 
+set(DISABLE_PAL_FLAGS TRUE)
 add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
 
 find_package(catkin REQUIRED COMPONENTS
     message_generation

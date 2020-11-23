@@ -702,6 +702,9 @@ void BaseRealSenseNode::getParameters()
     _pnh.param("angular_velocity_cov", _angular_velocity_cov, static_cast<double>(0.01));
     _pnh.param("hold_back_imu_for_frames", _hold_back_imu_for_frames, HOLD_BACK_IMU_FOR_FRAMES);
     _pnh.param("publish_odom_tf", _publish_odom_tf, PUBLISH_ODOM_TF);
+
+    _pnh.param("pointcloud_frame_skip", pointcloud_frame_skip_, POINTCLOUD_FRAME_SKIP);
+
 }
 
 void BaseRealSenseNode::setupDevice()
@@ -1335,6 +1338,7 @@ void BaseRealSenseNode::imu_callback_sync(rs2::frame frame, imu_sync_method sync
     static std::mutex m_mutex;
     static int seq = 0;
 
+
     m_mutex.lock();
 
     auto stream = frame.get_profile().stream_type();
@@ -1405,6 +1409,15 @@ void BaseRealSenseNode::imu_callback(rs2::frame frame)
         auto imu_msg = sensor_msgs::Imu();
         ImuMessage_AddDefaultValues(imu_msg);
         imu_msg.header.frame_id = _optical_frame_id[stream_index];
+
+        imu_msg.orientation.x = 0.0;
+        imu_msg.orientation.y = 0.0;
+        imu_msg.orientation.z = 0.0;
+        imu_msg.orientation.w = 0.0;
+        imu_msg.orientation_covariance = {{ -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0}};
+        imu_msg.linear_acceleration_covariance = {{ _linear_accel_cov, 0.0, 0.0, 0.0, _linear_accel_cov, 0.0, 0.0, 0.0, _linear_accel_cov}};
+        imu_msg.angular_velocity_covariance = {{ _angular_velocity_cov, 0.0, 0.0, 0.0, _angular_velocity_cov, 0.0, 0.0, 0.0, _angular_velocity_cov}};
+
 
         auto crnt_reading = *(reinterpret_cast<const float3*>(frame.get_data()));
         if (GYRO == stream_index)
@@ -1501,20 +1514,20 @@ void BaseRealSenseNode::pose_callback(rs2::frame frame)
         odom_msg.header.stamp = t;
         odom_msg.header.seq = _seq[stream_index];
         odom_msg.pose.pose = pose_msg.pose;
-        odom_msg.pose.covariance = {cov_pose, 0, 0, 0, 0, 0,
+        odom_msg.pose.covariance = {{cov_pose, 0, 0, 0, 0, 0,
                                     0, cov_pose, 0, 0, 0, 0,
                                     0, 0, cov_pose, 0, 0, 0,
                                     0, 0, 0, cov_twist, 0, 0,
                                     0, 0, 0, 0, cov_twist, 0,
-                                    0, 0, 0, 0, 0, cov_twist};
+                                    0, 0, 0, 0, 0, cov_twist}};
         odom_msg.twist.twist.linear = v_msg.vector;
         odom_msg.twist.twist.angular = om_msg.vector;
-        odom_msg.twist.covariance ={cov_pose, 0, 0, 0, 0, 0,
+        odom_msg.twist.covariance ={{cov_pose, 0, 0, 0, 0, 0,
                                     0, cov_pose, 0, 0, 0, 0,
                                     0, 0, cov_pose, 0, 0, 0,
                                     0, 0, 0, cov_twist, 0, 0,
                                     0, 0, 0, 0, cov_twist, 0,
-                                    0, 0, 0, 0, 0, cov_twist};
+                                    0, 0, 0, 0, 0, cov_twist}};
         _imu_publishers[stream_index].publish(odom_msg);
         ROS_DEBUG("Publish %s stream", rs2_stream_to_string(frame.get_profile().stream_type()));
     }
@@ -1641,7 +1654,7 @@ void BaseRealSenseNode::frame_callback(rs2::frame frame)
 
                 if (f.is<rs2::points>())
                 {
-                    if (0 != _pointcloud_publisher.getNumSubscribers())
+                    if (0 != _pointcloud_publisher.getNumSubscribers() && frame.get_frame_number()%pointcloud_frame_skip_ == 0)
                     {
                         ROS_DEBUG("Publish pointscloud");
                         publishPointCloud(f.as<rs2::points>(), t, frameset);
@@ -1816,12 +1829,22 @@ void BaseRealSenseNode::updateStreamCalibData(const rs2::video_stream_profile& v
     _camera_info[stream_index].P.at(10) = 1;
     _camera_info[stream_index].P.at(11) = 0;
 
+    // Set Tx, Ty for right camera
+    if (stream_index == FISHEYE2 && _enable[FISHEYE2])
+    {
+        /*const auto& ex = getAProfile(FISHEYE).get_extrinsics_to(getAProfile(FISHEYE));
+        _camera_info[stream_index].P.at(3) = -intrinsic.fx * ex.translation[0]; // Tx
+        _camera_info[stream_index].P.at(7) = -intrinsic.fy * ex.translation[1]; // Ty*/
+        _camera_info[stream_index].P.at(3) = -intrinsic.fx * 0.064; // Tx
+    }
+
     if (intrinsic.model == RS2_DISTORTION_KANNALA_BRANDT4)
     {
         _camera_info[stream_index].distortion_model = "equidistant";
     } else {
         _camera_info[stream_index].distortion_model = "plumb_bob";
     }
+
 
     // set R (rotation matrix) values to identity matrix
     _camera_info[stream_index].R.at(0) = 1.0;
@@ -2397,7 +2420,7 @@ void BaseRealSenseNode::startMonitoring()
         _temperature_nodes.push_back({option, std::make_shared<TemperatureDiagnostics>(rs2_option_to_string(option), _serial_no )});
     }
 
-    int time_interval(10000);
+    int time_interval(3000);
     std::function<void()> func = [this, time_interval](){
         std::mutex mu;
         std::unique_lock<std::mutex> lock(mu);
