@@ -16,6 +16,7 @@ install:
   - sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654
   - sudo apt-get update -qq
   - sudo apt-get install ros-kinetic-ros-base -y
+  - sudo apt install python-rosdep -y
   - sudo rosdep init
   - rosdep update
   - echo "source /opt/ros/kinetic/setup.bash" >> ~/.bashrc
@@ -39,7 +40,7 @@ install:
   - source ~/.bashrc
 
     # download data:
-  - bag_filename="http://realsense-hw-public.s3.amazonaws.com/rs-tests/TestData/outdoors.bag";
+  - bag_filename="http://realsense-hw-public.s3.amazonaws.com/rs-tests/TestData/outdoors_1color.bag";
   - wget $bag_filename -P "records/"
   - bag_filename="http://realsense-hw-public.s3-eu-west-1.amazonaws.com/rs-tests/D435i_Depth_and_IMU_Stands_still.bag";
   - wget $bag_filename -P "records/"
